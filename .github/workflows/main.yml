@@ -58,13 +58,15 @@ jobs:
 
       - name: Package for SCP
         run: |
+          cd ${{ github.workspace }}
           tar -czf /tmp/deploy.tar.gz \
-            --exclude='./.git' \
-            --exclude='./.env' \
-            --exclude='./node_modules' \
-            --exclude='./storage/app' \
-            --exclude='./storage/logs' \
-            --exclude='./tests' .
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='node_modules' \
+            --exclude='storage/app' \
+            --exclude='storage/logs' \
+            --exclude='tests' \
+            -C ${{ github.workspace }} .
 
       - name: Deploy archive via SCP
         uses: appleboy/scp-action@v0.1.7
