@@ -1,0 +1,147 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1 : Build & Test
+  # ─────────────────────────────────────────────
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, bcmath, gd, tokenizer
+          coverage: none
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build front-end assets (Vite)
+        run: npm run build
+
+      - name: Prepare test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run tests
+        run: php artisan test
+
+      # Crée une archive en excluant ce qui ne doit PAS aller sur le serveur :
+      #   - .env            → ne JAMAIS écraser le .env de prod
+      #   - storage/app     → uploads et fichiers privés
+      #   - storage/logs    → logs de production
+      #   - node_modules    → inutile côté serveur
+      #   - tests           → non nécessaire en prod
+      - name: Package application for deployment
+        run: |
+          tar -czf /tmp/deploy.tar.gz \
+            --exclude='./.git' \
+            --exclude='./.env' \
+            --exclude='./node_modules' \
+            --exclude='./storage/app' \
+            --exclude='./storage/logs' \
+            --exclude='./tests' \
+            .
+
+      - name: Upload deployment package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-package
+          path: /tmp/deploy.tar.gz
+          retention-days: 1
+
+  # ─────────────────────────────────────────────
+  # JOB 2 : Deploy (uniquement si build OK)
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production     # optionnel : ajoute un gate "approval" dans GitHub
+
+    steps:
+      - name: Download deployment package
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-package
+          path: /tmp
+
+      # Copie l'archive sur le VPS via SCP
+      - name: Upload archive to VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          source: "/tmp/deploy.tar.gz"
+          target: "/tmp"
+
+      # Extraction + commandes post-déploiement
+      - name: Extract & run post-deploy commands via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+
+            # Vérification de sécurité : le .env doit exister sur le serveur
+            [ -f "${{ secrets.VPS_TARGET_PATH }}/.env" ] || {
+              echo "FATAL: .env manquant sur le serveur. Créez-le manuellement avant le premier déploiement."
+              exit 1
+            }
+
+            cd ${{ secrets.VPS_TARGET_PATH }}
+
+            # Extraction (n'écrase PAS les fichiers absents de l'archive : .env, storage/app, logs)
+            tar -xzf /tmp/deploy.tar.gz -C .
+            rm -f /tmp/deploy.tar.gz
+
+            # Dépendances PHP côté serveur
+            composer install --no-dev --optimize-autoloader --no-interaction
+
+            # Migrations (--force requis hors mode interactif)
+            php artisan migrate --force
+
+            # Rebuild des caches Laravel
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            php artisan optimize
+
+            # Permissions storage & bootstrap/cache
+            chmod -R 775 storage bootstrap/cache
+            # Si le user SSH est propriétaire des fichiers et appartient au groupe www-data :
+            # chown -R $USER:www-data storage bootstrap/cache
+
+            echo "✓ Déploiement terminé avec succès."
