@@ -24,6 +24,9 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Check PHP version
+        run: php -v && php -r "echo PHP_VERSION;"
+
       - name: Install PHP dependencies
         run: composer install --no-dev --optimize-autoloader --no-interaction
 
