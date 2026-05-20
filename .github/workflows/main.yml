@@ -32,7 +32,7 @@ jobs:
 
       - name: Install JS & build
         run: |
-          npm ci
+          npm install
           npm run build
 
       - name: Upload build artifacts
