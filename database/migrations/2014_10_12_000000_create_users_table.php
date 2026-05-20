@@ -16,7 +16,8 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->string('promotion', 100)->nullable();
-            $table->enum('role', ['formateur', 'stagiaire'])->default('stagiaire');
+            // PostgreSQL ne supporte pas enum natif — on utilise string + check
+            $table->string('role', 20)->default('stagiaire');
             $table->rememberToken();
             $table->timestamps();
         });

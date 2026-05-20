@@ -1,37 +1,58 @@
-FROM php:8.2-apache
+FROM php:8.4-fpm-alpine
 
-# Installation des dépendances système nécessaires
-RUN apt-get update && apt-get install -y \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
+# ── Dépendances système ───────────────────────────────────────────────────────
+RUN apk add --no-cache \
+    nginx \
+    nodejs \
+    npm \
+    git \
+    curl \
     zip \
     unzip \
-    git \
-    curl
+    libpq-dev \
+    libzip-dev \
+    oniguruma-dev \
+    libxml2-dev \
+    icu-dev \
+    && docker-php-ext-install \
+        pdo \
+        pdo_pgsql \
+        pgsql \
+        mbstring \
+        zip \
+        bcmath \
+        xml \
+        intl \
+    && rm -rf /var/cache/apk/*
 
-# Installation des extensions PHP requises par Laravel
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+# ── Composer ──────────────────────────────────────────────────────────────────
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Activation du module de réécriture d'URL Apache
-RUN a2enmod rewrite
-
-# Configuration du dossier pointant vers le répertoire "public" de Laravel
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
-
-# Récupération de l'outil Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# Copie des fichiers du projet
+# ── Répertoire de travail ─────────────────────────────────────────────────────
 WORKDIR /var/www/html
+
+# ── Copie du code ─────────────────────────────────────────────────────────────
 COPY . .
 
-# Installation des paquets PHP
-RUN composer install --no-dev --optimize-autoloader
+# ── Installation des dépendances PHP ─────────────────────────────────────────
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Ajustement des permissions pour les dossiers de cache et stockage Laravel
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+# ── Installation des dépendances JS + build assets ───────────────────────────
+RUN npm ci && npm run build && rm -rf node_modules
 
-EXPOSE 80
+# ── Permissions storage ───────────────────────────────────────────────────────
+RUN mkdir -p storage/app/private/documents \
+    bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
+
+# ── Configuration Nginx ───────────────────────────────────────────────────────
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+
+# ── Script de démarrage ───────────────────────────────────────────────────────
+COPY docker/start.sh /start.sh
+RUN chmod +x /start.sh
+
+EXPOSE 8080
+
+CMD ["/start.sh"]

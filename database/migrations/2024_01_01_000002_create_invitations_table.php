@@ -11,12 +11,11 @@ return new class extends Migration
         Schema::create('invitations', function (Blueprint $table) {
             $table->id();
             $table->string('code', 64)->unique();
-            $table->enum('role', ['formateur', 'stagiaire'])->default('stagiaire');
+            // string au lieu de enum pour compatibilité PostgreSQL
+            $table->string('role', 20)->default('stagiaire');
             $table->foreignId('created_by')->constrained('users')->cascadeOnDelete();
-            // used_by : l'utilisateur qui s'est inscrit via ce code
             $table->foreignId('used_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('used_at')->nullable();
-            // Expiration par défaut : 31 décembre 2026
             $table->timestamp('expires_at')->default('2026-12-31 23:59:59');
             $table->timestamps();
         });
