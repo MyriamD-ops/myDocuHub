@@ -16,6 +16,7 @@ php artisan migrate --force
 # Seeders
 echo "🌱 Seeders..."
 php artisan db:seed --class=CategorieSeeder --force
+php artisan db:seed --class=FormateurSeeder --force
 
 # Cache Laravel
 echo "⚡ Cache..."
