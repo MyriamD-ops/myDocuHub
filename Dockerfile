@@ -46,6 +46,10 @@ RUN mkdir -p storage/app/private/documents \
     && chmod -R 775 storage bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
+# ── Dossiers temporaires Nginx ────────────────────────────────────────────────
+RUN mkdir -p /tmp/nginx_client_body /tmp/nginx_proxy \
+    && chmod 777 /tmp/nginx_client_body /tmp/nginx_proxy
+
 # ── Configuration Nginx ───────────────────────────────────────────────────────
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 
